@@ -1,0 +1,5 @@
+/* src/index.css */
+/* Ensure Tailwind CSS is installed and PostCSS is configured to process these directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
