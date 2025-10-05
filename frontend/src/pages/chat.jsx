@@ -21,11 +21,12 @@ export default function Chat({ user }) {
     if (!newMessage.trim() || loading) return
 
     setLoading(true)
+    const messageToSend = newMessage.trim()
     
     // Add user message immediately
     const userMessage = {
       id: Date.now(),
-      text: newMessage,
+      text: messageToSend,
       isBot: false,
       timestamp: new Date()
     }
@@ -40,12 +41,14 @@ export default function Chat({ user }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          user_id: user.user_id,
-          message_text: newMessage
+          user_id: user?.user_id || 'anonymous',
+          message_text: messageToSend
         }),
       })
       
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server error:', response.status, errorText);
         throw new Error('Failed to send message')
       }
       
@@ -56,16 +59,23 @@ export default function Chat({ user }) {
         setCurrentSeverity(data.analysis.severity)
       }
       
-      // Add bot reply
+      // Add bot reply with entities
       const botMessage = {
         id: Date.now() + 1,
         text: data.bot_reply,
         isBot: true,
         timestamp: new Date(),
-        analysis: data.analysis // Include analysis data for display
+        analysis: data.analysis
       }
       
       setMessages(prev => [...prev, botMessage])
+
+      // Update the user message to include entities AND concern data
+      setMessages(prev => prev.map(msg => 
+        msg.id === userMessage.id 
+          ? {...msg, entities: data.analysis.entities, analysis: data.analysis}
+          : msg
+      ))
       
     } catch (error) {
       console.error('Message error:', error)
@@ -96,6 +106,16 @@ export default function Chat({ user }) {
     }
   }
 
+  const quickSuggestions = [
+    "I'm feeling really anxious and overwhelmed",
+    "I've been having dark thoughts lately", 
+    "I'm struggling with depression",
+    "I'm having relationship problems",
+    "I'm under a lot of stress at work",
+    "I've been thinking about self-harm",
+    "I feel completely alone and isolated"
+  ]
+
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case 'IMMINENT':
@@ -119,6 +139,32 @@ export default function Chat({ user }) {
         return 'Elevated concern detected - We are listening'
       default:
         return 'You are safe - Continue sharing how you feel'
+    }
+  }
+
+  const getEntityColor = (label) => {
+    switch (label) {
+      case 'Work': return 'bg-orange-100 text-orange-800'
+      case 'School': return 'bg-purple-100 text-purple-800'
+      case 'Family': return 'bg-green-100 text-green-800'
+      case 'Relationship': return 'bg-pink-100 text-pink-800'
+      case 'Person': return 'bg-blue-100 text-blue-800'
+      case 'Location': return 'bg-indigo-100 text-indigo-800'
+      case 'Health': return 'bg-red-100 text-red-800'
+      case 'Financial': return 'bg-yellow-100 text-yellow-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getConcernColor = (label) => {
+    switch (label) {
+      case 'suicidal': return 'bg-red-100 text-red-800 border border-red-200'
+      case 'self-harm': return 'bg-red-100 text-red-800 border border-red-200'
+      case 'depression': return 'bg-blue-100 text-blue-800 border border-blue-200'
+      case 'anxiety': return 'bg-purple-100 text-purple-800 border border-purple-200'
+      case 'stress': return 'bg-orange-100 text-orange-800 border border-orange-200'
+      case 'relationship': return 'bg-pink-100 text-pink-800 border border-pink-200'
+      default: return 'bg-gray-100 text-gray-800 border border-gray-200'
     }
   }
 
@@ -188,8 +234,21 @@ export default function Chat({ user }) {
               This is a confidential space where you can share your thoughts and feelings. 
               I'm here to listen without judgment.
             </p>
-            <div className="mt-6 text-xs text-gray-400 max-w-md mx-auto">
-              <p>💡 <strong>Tip:</strong> You can talk about anything - your day, your feelings, or things that are worrying you.</p>
+            
+            {/* Quick Suggestions */}
+            <div className="mt-6 max-w-md mx-auto">
+              <p className="text-sm text-gray-600 mb-3">Try starting with:</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {quickSuggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setNewMessage(suggestion)}
+                    className="text-xs bg-blue-100 text-blue-700 px-3 py-2 rounded-full hover:bg-blue-200 transition-colors border border-blue-200"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -208,6 +267,22 @@ export default function Chat({ user }) {
                 >
                   <p className="text-sm whitespace-pre-wrap">{message.text}</p>
                   
+                  {/* Show entities for user messages */}
+                  {!message.isBot && message.entities && message.entities.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <div className="flex flex-wrap gap-1">
+                        {message.entities.map((entity, index) => (
+                          <span
+                            key={index}
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getEntityColor(entity.label)}`}
+                          >
+                            {entity.text} • {entity.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Show sentiment analysis for user messages */}
                   {!message.isBot && message.analysis && (
                     <div className="mt-2 pt-2 border-t border-gray-100">
@@ -215,6 +290,21 @@ export default function Chat({ user }) {
                         <span>Sentiment: {message.analysis.polarity > 0 ? '😊' : message.analysis.polarity < -0.3 ? '😔' : '😐'}</span>
                         <span>•</span>
                         <span>Score: {message.analysis.polarity}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show concern classification for user messages */}
+                  {!message.isBot && message.analysis && message.analysis.concern && message.analysis.concern.label !== 'safe' && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Detected Concern:</span>
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getConcernColor(message.analysis.concern.label)}`}>
+                          {message.analysis.concern.label} 
+                          <span className="ml-1 text-xs opacity-75">
+                            ({Math.round(message.analysis.concern.confidence * 100)}%)
+                          </span>
+                        </span>
                       </div>
                     </div>
                   )}
@@ -248,14 +338,16 @@ export default function Chat({ user }) {
             {/* Loading indicator */}
             {loading && (
               <div className="flex justify-start">
-                <div className="bg-white border border-gray-200 text-gray-800 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm">
-                  <div className="flex items-center space-x-2">
+                <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-none">
+                  <div className="flex items-center space-x-3">
                     <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
                     </div>
-                    <span className="text-sm text-gray-600">Analyzing your message...</span>
+                    <div className="text-sm text-gray-600">
+                      <span className="font-medium">MindPeers</span> is thinking...
+                    </div>
                   </div>
                 </div>
               </div>
@@ -264,6 +356,23 @@ export default function Chat({ user }) {
           </div>
         )}
       </div>
+      
+      {/* Quick Suggestions (when there are messages) */}
+      {messages.length > 0 && (
+        <div className="px-4 pt-2">
+          <div className="flex flex-wrap gap-2">
+            {quickSuggestions.map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => setNewMessage(suggestion)}
+                className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full hover:bg-blue-200 transition-colors border border-blue-200"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       
       {/* Input Area */}
       <form onSubmit={sendMessage} className="p-4 border-t border-gray-200 bg-white rounded-b-lg">
