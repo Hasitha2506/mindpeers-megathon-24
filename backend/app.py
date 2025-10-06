@@ -673,6 +673,60 @@ def consent():
         if 'conn' in locals():
             conn.close()
 
+
+@app.route('/api/trend/<user_id>', methods=['GET'])
+def get_sentiment_trend(user_id):
+    """Get sentiment trend data for a user"""
+    try:
+        conn = sqlite3.connect('mindpeers.db')
+        c = conn.cursor()
+        
+        # Get last 20 messages with polarity and timestamps - ORDER BY ASC for chronological order
+        c.execute('''
+            SELECT message_text, polarity, created_at 
+            FROM messages 
+            WHERE user_id = ? AND is_bot = FALSE AND polarity IS NOT NULL
+            ORDER BY created_at ASC  -- CHANGED FROM DESC TO ASC
+            LIMIT 20
+        ''', (user_id,))
+        
+        messages = c.fetchall()
+        conn.close()
+        
+        # Process data for frontend
+        trend_data = []
+        for i, (text, polarity, timestamp) in enumerate(messages):
+            trend_data.append({
+                "index": i + 1,  # Start from 1 instead of 0
+                "polarity": polarity,
+                "timestamp": timestamp,
+                "message_preview": text[:30] + "..." if len(text) > 30 else text
+            })
+        
+        # NO NEED TO REVERSE - data is already in chronological order
+        
+        # Calculate mood trend (simple slope) - using first and last points
+        if len(trend_data) >= 2:
+            first_polarity = trend_data[0]['polarity']
+            last_polarity = trend_data[-1]['polarity']
+            mood_slope = last_polarity - first_polarity
+        else:
+            mood_slope = 0
+        
+        return jsonify({
+            "trend": trend_data,
+            "summary": {
+                "total_messages": len(trend_data),
+                "mood_slope": round(mood_slope, 3),
+                "mood_trend": "improving" if mood_slope > 0.1 else "declining" if mood_slope < -0.1 else "stable",
+                "current_mood": trend_data[-1]['polarity'] if trend_data else 0
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Trend error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/api/message', methods=['POST'])
 def handle_message():
     try:
